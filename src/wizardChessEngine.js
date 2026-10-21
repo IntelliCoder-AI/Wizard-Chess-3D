@@ -1437,6 +1437,8 @@ export function initWizardChess() {
             // Initialize default Look 1/6 (Original Ashlar & Abbey Flagstone) on Wall/Column Stone and Floor Stone
             setWallStoneLook(0);
             setFloorStoneLook(0);
+            const environmentBounds = new THREE.Box3().setFromObject(cathedralRoot);
+            console.log('Environment bounds', JSON.stringify({min:environmentBounds.min.toArray(),max:environmentBounds.max.toArray(),camera:camera.position.toArray(),target:orbitControls.target.toArray()}));
             scene.add(cathedralRoot);
 
             renderer.shadowMap.needsUpdate = true;

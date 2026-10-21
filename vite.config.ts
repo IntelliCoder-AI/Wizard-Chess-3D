@@ -62,10 +62,6 @@ export default defineConfig(async ({ mode, command }) => {
           if (item.name && !outputNames.has(item.name)) throw new Error(`Missing ${key} name ${item.name} in ${name}`);
         }
       }
-      if (name === 'option8_cathedral') console.log('CATHEDRAL_LAYOUT:' + JSON.stringify({
-        nodes: outputJson.nodes, scenes: outputJson.scenes,
-        meshes: outputJson.meshes.map((mesh: any) => ({name:mesh.name,primitives:mesh.primitives.map((primitive: any) => ({position:outputJson.accessors[primitive.attributes.POSITION]}))}))
-      }));
       const gzip = gzipSync(optimized, { level: 9 });
       console.log(`Model transfer ${name}: ${original.length} -> ${gzip.length} bytes`);
       const hash = createHash('sha256').update(gzip).digest('hex').slice(0, 12);
