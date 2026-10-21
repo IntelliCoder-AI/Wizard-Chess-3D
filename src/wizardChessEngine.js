@@ -1160,30 +1160,57 @@ export function initWizardChess() {
       const loaderText = document.getElementById('loader-text');
       const totalItems = PIECE_TYPES.length + 1;
 
-      async function downloadModel(baseName) {
+      async function fetchAsset(url, binary = false) {
         for (let attempt = 0; attempt < 3; attempt++) {
           const controller = new AbortController();
           // Keep the timeout active while reading the body, not just the headers.
           const timeout = setTimeout(() => controller.abort(), 60000);
           try {
-            const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`, {
+            const response = await fetch(url, {
               signal: controller.signal,
               cache: attempt === 0 ? 'default' : 'reload'
             });
-            if (!resB64.ok) throw new Error(`HTTP ${resB64.status}`);
-            const b64Text = (await resB64.text()).trim();
-            const binStr = atob(b64Text);
-            const gzBytes = new Uint8Array(binStr.length);
-            for (let i = 0; i < binStr.length; i++) {
-              gzBytes[i] = binStr.charCodeAt(i);
-            }
-            const stream = new Blob([gzBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-            return await new Response(stream).arrayBuffer();
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return binary ? await response.arrayBuffer() : await response.text();
           } catch (err) {
-            if (attempt === 2) throw new Error(`Could not load ${baseName}. Please check your connection and retry.`, { cause: err });
+            if (attempt === 2) throw err;
           } finally {
             clearTimeout(timeout);
           }
+        }
+      }
+
+      async function downloadModel(baseName) {
+        try {
+          let gzipParts;
+          const partUrls = typeof __CATHEDRAL_GZIP_PARTS__ === 'undefined' ? [] : __CATHEDRAL_GZIP_PARTS__;
+          if (baseName === 'option8_cathedral' && partUrls.length) {
+            gzipParts = new Array(partUrls.length);
+            let nextPart = 0;
+            let completed = 0;
+            // Limit parallel transfers and retry only the interrupted part.
+            const results = await Promise.allSettled(Array.from({ length: Math.min(4, partUrls.length) }, async () => {
+              while (nextPart < partUrls.length) {
+                const index = nextPart++;
+                gzipParts[index] = await fetchAsset(partUrls[index], true);
+                completed++;
+                if (loaderText) loaderText.textContent = `Downloading Cathedral: ${Math.round(completed / partUrls.length * 100)}%`;
+              }
+            }));
+            const failed = results.find((result) => result.status === 'rejected');
+            if (failed) throw failed.reason;
+            if (loaderText) loaderText.textContent = 'Preparing Cathedral Architecture...';
+          } else {
+            const b64Text = (await fetchAsset(`./assets/glb/${baseName}.glb.gz.b64`)).trim();
+            const binStr = atob(b64Text);
+            const gzBytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) gzBytes[i] = binStr.charCodeAt(i);
+            gzipParts = [gzBytes];
+          }
+          const stream = new Blob(gzipParts).stream().pipeThrough(new DecompressionStream('gzip'));
+          return await new Response(stream).arrayBuffer();
+        } catch (err) {
+          throw new Error(`Could not load ${baseName}. Please check your connection and retry.`, { cause: err });
         }
       }
 
