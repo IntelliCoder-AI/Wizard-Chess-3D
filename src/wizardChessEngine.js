@@ -3070,10 +3070,10 @@ export function initWizardChess() {
         if (total === 0) {
           label.textContent = `Move ${moveHistory.length}`;
         } else if (scriptDeviated) {
-          label.textContent = `Move ${moveHistory.length}  Custom Takeover`;
+          label.textContent = `Move ${moveHistory.length} • Custom Takeover`;
         } else if (scriptCursor < total) {
           const nextSan = scriptMoves[scriptCursor].san;
-          label.textContent = `Step ${scriptCursor}/${total}  Next: ${nextSan}`;
+          label.textContent = `Step ${scriptCursor}/${total} • Next: ${nextSan}`;
         } else {
           label.textContent = `Step ${total}/${total} (Done)`;
         }
@@ -3409,10 +3409,10 @@ export function initWizardChess() {
       const winnerName = winnerColor === 'w' ? 'White' : 'Black';
       const defeatedName = defeatedColor === 'w' ? 'White' : 'Black';
 
-      if (crownEl) crownEl.textContent = winnerColor === 'w' ? '?' : '?';
+      if (crownEl) crownEl.textContent = winnerColor === 'w' ? '♔' : '♚';
       if (titleEl) titleEl.textContent = 'Checkmate';
       if (subEl) {
-        subEl.textContent = `${winnerName} Triumphs  The ${defeatedName} King Has Fallen`;
+        subEl.textContent = `${winnerName} Triumphs • The ${defeatedName} King Has Fallen`;
       }
       if (overlay) {
         overlay.classList.add('visible');
@@ -3685,12 +3685,12 @@ export function initWizardChess() {
         gameOver = true;
         if (inCheck) {
           const winner = currentTurn === 'w' ? 'Black' : 'White';
-          turnText.textContent = `Checkmate - ${winner} Wins`;
+          turnText.textContent = `Checkmate — ${winner} Wins`;
           if (!checkmateState.active) {
             triggerCheckmateSequence(currentTurn, currentTurn === 'w' ? 'b' : 'w');
           }
         } else {
-          turnText.textContent = 'Stalemate - Draw';
+          turnText.textContent = 'Stalemate — Draw';
         }
       } else {
         const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
@@ -3720,7 +3720,7 @@ export function initWizardChess() {
       }
 
       if (capturedByWhite > 0 || capturedByBlack > 0) {
-        capturedTray.textContent = `Captured - White: ${capturedByWhite} | Black: ${capturedByBlack}`;
+        capturedTray.textContent = `Captured — White: ${capturedByWhite} | Black: ${capturedByBlack}`;
       } else {
         capturedTray.textContent = '';
       }
@@ -3945,7 +3945,7 @@ export function initWizardChess() {
       if (mpMsg && roomCode) {
         mpMsg.textContent = bothReady
           ? `Both players connected to Room ${room.code}!`
-          : `Room ${room.code} ready - waiting for second player to join...`;
+          : `Room ${room.code} ready — waiting for second player to join...`;
       }
 
       if (room.resetCount > appliedResetCount) {
@@ -4595,11 +4595,11 @@ export function initWizardChess() {
           ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(212, 175, 55, 0.88)';
           ctx.font = '600 12px Georgia, serif';
-          ctx.fillText('?   SANCTUM JUDGMENT   ?', window.innerWidth / 2, by + 28);
+          ctx.fillText('✦   SANCTUM JUDGMENT   ✦', window.innerWidth / 2, by + 28);
 
           ctx.fillStyle = '#f5d76e';
           ctx.font = '26px serif';
-          const crownChar = checkmateState.winnerColor === 'b' ? '?' : '?';
+          const crownChar = checkmateState.winnerColor === 'b' ? '♚' : '♔';
           ctx.fillText(crownChar, window.innerWidth / 2, by + 56);
 
           ctx.fillStyle = '#f7e299';
@@ -4614,7 +4614,7 @@ export function initWizardChess() {
 
           const subTxt =
             document.getElementById('checkmate-subtitle')?.textContent ||
-            'WHITE TRIUMPHS  THE BLACK KING HAS FALLEN';
+            'WHITE TRIUMPHS • THE BLACK KING HAS FALLEN';
           ctx.fillStyle = '#f0ece1';
           ctx.font = 'bold 14px Georgia, serif';
           ctx.fillText(subTxt.toUpperCase(), window.innerWidth / 2, by + 142);
@@ -4660,7 +4660,7 @@ export function initWizardChess() {
 
             ctx.fillStyle = '#d4af37';
             ctx.font = 'bold 18px Inter, sans-serif';
-            ctx.fillText('MULTIPLAYER LOBBY  ROOM CODE', cx + 28, cy + 42);
+            ctx.fillText('MULTIPLAYER LOBBY • ROOM CODE', cx + 28, cy + 42);
 
             ctx.fillStyle = '#9aa0a6';
             ctx.font = '13px Inter, sans-serif';
@@ -4672,7 +4672,7 @@ export function initWizardChess() {
 
             ctx.fillStyle = '#4ea8de';
             ctx.font = '600 14px Inter, sans-serif';
-            ctx.fillText('Create Room    Join Room by Code    Live Move Sync', cx + 42, cy + 195);
+            ctx.fillText('Create Room  •  Join Room by Code  •  Live Move Sync', cx + 42, cy + 195);
 
             ctx.fillStyle = '#f0ece1';
             ctx.font = '13px Inter, sans-serif';
