@@ -1160,33 +1160,45 @@ export function initWizardChess() {
       const loaderText = document.getElementById('loader-text');
       const totalItems = PIECE_TYPES.length + 1;
 
-      async function loadGltfModel(baseName) {
-        let arrayBuffer = null;
-        try {
-          const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`);
-          if (resB64.ok) {
+      async function downloadModel(baseName) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const controller = new AbortController();
+          // Keep the timeout active while reading the body, not just the headers.
+          const timeout = setTimeout(() => controller.abort(), 60000);
+          try {
+            const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`, {
+              signal: controller.signal,
+              cache: attempt === 0 ? 'default' : 'reload'
+            });
+            if (!resB64.ok) throw new Error(`HTTP ${resB64.status}`);
             const b64Text = (await resB64.text()).trim();
-            if (b64Text.length > 64) {
-              const binStr = atob(b64Text);
-              const gzBytes = new Uint8Array(binStr.length);
-              for (let i = 0; i < binStr.length; i++) {
-                gzBytes[i] = binStr.charCodeAt(i);
-              }
-              const ds = new DecompressionStream('gzip');
-              const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
-              arrayBuffer = await new Response(stream).arrayBuffer();
+            const binStr = atob(b64Text);
+            const gzBytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) {
+              gzBytes[i] = binStr.charCodeAt(i);
             }
+            const stream = new Blob([gzBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+            return await new Response(stream).arrayBuffer();
+          } catch (err) {
+            if (attempt === 2) throw new Error(`Could not load ${baseName}. Please check your connection and retry.`, { cause: err });
+          } finally {
+            clearTimeout(timeout);
           }
-        } catch (e) {}
-
-        if (!arrayBuffer) {
-          const resGlb = await fetch(`./assets/glb/${baseName}.glb`);
-          if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
-          arrayBuffer = await resGlb.arrayBuffer();
         }
+      }
 
+      // Start all downloads together; retain failures until their model is consumed.
+      const downloads = new Map(['option8_cathedral', ...PIECE_TYPES.map((type) => `${type}_white`)]
+        .map((name) => [name, downloadModel(name).then(
+          (arrayBuffer) => ({ arrayBuffer }),
+          (error) => ({ error })
+        )]));
+
+      async function loadGltfModel(baseName) {
+        const result = await downloads.get(baseName);
+        if (result.error) throw result.error;
         return new Promise((resolve, reject) => {
-          gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => resolve(gltf), (err) => reject(err));
+          gltfLoader.parse(result.arrayBuffer, './assets/glb/', resolve, reject);
         });
       }
       let loadedCount = 0;
@@ -1233,7 +1245,7 @@ export function initWizardChess() {
 
       // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
       const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         loadGltfModel('option8_cathedral').then(
           (gltf) => {
             const cathedralRoot = gltf.scene;
@@ -1384,15 +1396,14 @@ export function initWizardChess() {
           },
           (err) => {
             console.warn('Cathedral GLB load warning:', err);
-            bumpProgress('Cathedral Loaded');
-            resolve();
+            reject(err);
           }
         );
       });
 
       // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
       for (const type of PIECE_TYPES) {
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
           loadGltfModel(`${type}_white`).then(
             (gltf) => {
               const toRemove = [];
@@ -1418,8 +1429,7 @@ export function initWizardChess() {
             },
             (err) => {
               console.warn(`Piece load warning (${type}):`, err);
-              bumpProgress(`Loaded ${type}`);
-              resolve();
+              reject(err);
             }
           );
         });
@@ -4950,5 +4960,17 @@ export function initWizardChess() {
       } else {
         animate();
       }
-    })();
+    })().catch((err) => {
+      console.error('Game asset loading failed:', err);
+      const loaderText = document.getElementById('loader-text');
+      if (loaderText) {
+        loaderText.textContent = err.message || 'Unable to load game assets.';
+        const retry = document.createElement('button');
+        retry.className = 'hud-btn';
+        retry.textContent = 'Retry Loading';
+        retry.onclick = () => window.location.reload();
+        loaderText.appendChild(document.createElement('br'));
+        loaderText.appendChild(retry);
+      }
+    });
 }
