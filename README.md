@@ -1,8 +1,8 @@
-**Play online:** [https://wizard-chess-3d-steel.vercel.app/](https://wizard-chess-3d-steel.vercel.app/)
-
 # ♟️ Wizard Chess 3D
 
 An interactive **3D chess game** set inside a Gothic cathedral, featuring sculpted chess pieces, cinematic captures, animated effects, and a built-in computer opponent. Play in your browser and explore the board from multiple camera angles.
+
+### **Play online:** [https://wizard-chess-3d-steel.vercel.app/](https://wizard-chess-3d-steel.vercel.app/)
 
 ## ✨ Features
 
