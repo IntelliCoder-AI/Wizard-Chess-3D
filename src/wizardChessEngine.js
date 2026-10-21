@@ -1,7 +1,6 @@
 import * as THREE_NS from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /** @type {any} */
@@ -861,7 +860,7 @@ export function initWizardChess() {
     // =========================================================================
     // Asset Loading (Cathedral GLB + 12 Rigged Piece GLBs)
     // =========================================================================
-    const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const gltfLoader = new GLTFLoader();
     const pieceTemplates = {};
     const activeMixers = [];
     const shatterDebris = [];
@@ -1159,88 +1158,70 @@ export function initWizardChess() {
     async function loadAllAssets() {
       const loaderBar = document.getElementById('loader-bar');
       const loaderText = document.getElementById('loader-text');
-      const totalItems = PIECE_TYPES.length;
-
-      // Share one queue across every model, so large transfers cannot flood the connection.
-      let activeDownloads = 0;
-      const waitingDownloads = [];
+      const totalItems = PIECE_TYPES.length + 1;
 
       async function fetchAsset(url, binary = false) {
-        if (activeDownloads >= 1) await new Promise((resolve) => waitingDownloads.push(resolve));
-        else activeDownloads++;
-        try {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const controller = new AbortController();
-            let timeout;
-            const resetTimeout = () => {
-              clearTimeout(timeout);
-              timeout = setTimeout(() => controller.abort(), 60000);
-            };
-            resetTimeout();
-            try {
-              const response = await fetch(url, {
-                signal: controller.signal,
-                cache: attempt === 0 ? 'default' : 'reload'
-              });
-              if (!response.ok) throw new Error(`HTTP ${response.status}`);
-              const reader = response.body.getReader();
-              const chunks = [];
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                // A progressing transfer is healthy, even on a slow connection.
-                resetTimeout();
-              }
-              const blob = new Blob(chunks);
-              return binary ? await blob.arrayBuffer() : await blob.text();
-            } catch (err) {
-              if (attempt === 2) throw err;
-            } finally {
-              clearTimeout(timeout);
-            }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const controller = new AbortController();
+          // Keep the timeout active while reading the body, not just the headers.
+          const timeout = setTimeout(() => controller.abort(), 60000);
+          try {
+            const response = await fetch(url, {
+              signal: controller.signal,
+              cache: attempt === 0 ? 'default' : 'reload'
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return binary ? await response.arrayBuffer() : await response.text();
+          } catch (err) {
+            if (attempt === 2) throw err;
+          } finally {
+            clearTimeout(timeout);
           }
-        } finally {
-          const next = waitingDownloads.shift();
-          if (next) next();
-          else activeDownloads--;
         }
       }
 
       async function downloadModel(baseName) {
         try {
-          const modelUrls = typeof __MODEL_GZIP_URLS__ === 'undefined' ? {} : __MODEL_GZIP_URLS__;
-          let gzip;
-          if (modelUrls[baseName]) {
-            gzip = await fetchAsset(modelUrls[baseName], true);
+          let gzipParts;
+          const partUrls = typeof __CATHEDRAL_GZIP_PARTS__ === 'undefined' ? [] : __CATHEDRAL_GZIP_PARTS__;
+          if (baseName === 'option8_cathedral' && partUrls.length) {
+            gzipParts = new Array(partUrls.length);
+            let nextPart = 0;
+            let completed = 0;
+            // Limit parallel transfers and retry only the interrupted part.
+            const results = await Promise.allSettled(Array.from({ length: Math.min(4, partUrls.length) }, async () => {
+              while (nextPart < partUrls.length) {
+                const index = nextPart++;
+                gzipParts[index] = await fetchAsset(partUrls[index], true);
+                completed++;
+                if (loaderText) loaderText.textContent = `Downloading Cathedral: ${Math.round(completed / partUrls.length * 100)}%`;
+              }
+            }));
+            const failed = results.find((result) => result.status === 'rejected');
+            if (failed) throw failed.reason;
+            if (loaderText) loaderText.textContent = 'Preparing Cathedral Architecture...';
           } else {
-            // Development uses the checked-in source assets.
             const b64Text = (await fetchAsset(`./assets/glb/${baseName}.glb.gz.b64`)).trim();
             const binStr = atob(b64Text);
-            gzip = new Uint8Array(binStr.length);
-            for (let i = 0; i < binStr.length; i++) gzip[i] = binStr.charCodeAt(i);
+            const gzBytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) gzBytes[i] = binStr.charCodeAt(i);
+            gzipParts = [gzBytes];
           }
-          const stream = new Blob([gzip]).stream().pipeThrough(new DecompressionStream('gzip'));
+          const stream = new Blob(gzipParts).stream().pipeThrough(new DecompressionStream('gzip'));
           return await new Response(stream).arrayBuffer();
         } catch (err) {
           throw new Error(`Could not load ${baseName}. Please check your connection and retry.`, { cause: err });
         }
       }
 
-      // Queue downloads together; retain failures until their model is consumed.
-      const downloads = new Map(PIECE_TYPES.map((type) => `${type}_white`)
+      // Start all downloads together; retain failures until their model is consumed.
+      const downloads = new Map(['option8_cathedral', ...PIECE_TYPES.map((type) => `${type}_white`)]
         .map((name) => [name, downloadModel(name).then(
           (arrayBuffer) => ({ arrayBuffer }),
           (error) => ({ error })
         )]));
 
       async function loadGltfModel(baseName) {
-        if (!downloads.has(baseName)) {
-          downloads.set(baseName, downloadModel(baseName).then(
-            (arrayBuffer) => ({ arrayBuffer }),
-            (error) => ({ error })
-          ));
-        }
         const result = await downloads.get(baseName);
         if (result.error) throw result.error;
         return new Promise((resolve, reject) => {
@@ -1291,9 +1272,7 @@ export function initWizardChess() {
 
       // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
       const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      function loadCathedral() {
-        downloads.delete('option8_cathedral');
-        return new Promise((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         loadGltfModel('option8_cathedral').then(
           (gltf) => {
             const cathedralRoot = gltf.scene;
@@ -1439,8 +1418,7 @@ export function initWizardChess() {
             setFloorStoneLook(0);
             scene.add(cathedralRoot);
 
-            renderer.shadowMap.needsUpdate = true;
-            if (navigator.webdriver) renderer.render(scene, camera);
+            bumpProgress('Cathedral Architecture Loaded...');
             resolve();
           },
           (err) => {
@@ -1448,8 +1426,7 @@ export function initWizardChess() {
             reject(err);
           }
         );
-        });
-      }
+      });
 
       // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
       for (const type of PIECE_TYPES) {
@@ -1486,7 +1463,6 @@ export function initWizardChess() {
       }
 
       document.getElementById('loading-overlay')?.classList.add('hidden');
-      return loadCathedral;
     }
 
     // =========================================================================
@@ -4999,7 +4975,7 @@ export function initWizardChess() {
 
     // Startup sequence (Standalone Single-Player AI Studio Applet)
     (async () => {
-      const loadCathedral = await loadAllAssets();
+      await loadAllAssets();
       const params = new URLSearchParams(window.location.search);
       const urlSide = params.get('side');
       if (urlSide === 'b' || urlSide === 'black') {
@@ -5011,26 +4987,6 @@ export function initWizardChess() {
       } else {
         animate();
       }
-      // Make the board playable before downloading the larger decorative environment.
-      const environmentStatus = document.createElement('button');
-      environmentStatus.className = 'hud-btn';
-      Object.assign(environmentStatus.style, { position: 'absolute', bottom: '16px', left: '16px', zIndex: '20' });
-      environmentStatus.setAttribute('aria-live', 'polite');
-      document.body.appendChild(environmentStatus);
-      const loadEnvironment = async () => {
-        environmentStatus.textContent = 'Loading cathedral...';
-        environmentStatus.disabled = true;
-        try {
-          await loadCathedral();
-          environmentStatus.remove();
-        } catch (err) {
-          console.warn('Cathedral loading failed:', err);
-          environmentStatus.textContent = 'Retry Cathedral';
-          environmentStatus.disabled = false;
-        }
-      };
-      environmentStatus.onclick = loadEnvironment;
-      void loadEnvironment();
     })().catch((err) => {
       console.error('Game asset loading failed:', err);
       const loaderText = document.getElementById('loader-text');
