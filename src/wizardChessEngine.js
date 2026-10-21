@@ -1160,33 +1160,45 @@ export function initWizardChess() {
       const loaderText = document.getElementById('loader-text');
       const totalItems = PIECE_TYPES.length + 1;
 
-      async function loadGltfModel(baseName) {
-        let arrayBuffer = null;
-        try {
-          const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`);
-          if (resB64.ok) {
+      async function downloadModel(baseName) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const controller = new AbortController();
+          // Keep the timeout active while reading the body, not just the headers.
+          const timeout = setTimeout(() => controller.abort(), 60000);
+          try {
+            const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`, {
+              signal: controller.signal,
+              cache: attempt === 0 ? 'default' : 'reload'
+            });
+            if (!resB64.ok) throw new Error(`HTTP ${resB64.status}`);
             const b64Text = (await resB64.text()).trim();
-            if (b64Text.length > 64) {
-              const binStr = atob(b64Text);
-              const gzBytes = new Uint8Array(binStr.length);
-              for (let i = 0; i < binStr.length; i++) {
-                gzBytes[i] = binStr.charCodeAt(i);
-              }
-              const ds = new DecompressionStream('gzip');
-              const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
-              arrayBuffer = await new Response(stream).arrayBuffer();
+            const binStr = atob(b64Text);
+            const gzBytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) {
+              gzBytes[i] = binStr.charCodeAt(i);
             }
+            const stream = new Blob([gzBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+            return await new Response(stream).arrayBuffer();
+          } catch (err) {
+            if (attempt === 2) throw new Error(`Could not load ${baseName}. Please check your connection and retry.`, { cause: err });
+          } finally {
+            clearTimeout(timeout);
           }
-        } catch (e) {}
-
-        if (!arrayBuffer) {
-          const resGlb = await fetch(`./assets/glb/${baseName}.glb`);
-          if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
-          arrayBuffer = await resGlb.arrayBuffer();
         }
+      }
 
+      // Start all downloads together; retain failures until their model is consumed.
+      const downloads = new Map(['option8_cathedral', ...PIECE_TYPES.map((type) => `${type}_white`)]
+        .map((name) => [name, downloadModel(name).then(
+          (arrayBuffer) => ({ arrayBuffer }),
+          (error) => ({ error })
+        )]));
+
+      async function loadGltfModel(baseName) {
+        const result = await downloads.get(baseName);
+        if (result.error) throw result.error;
         return new Promise((resolve, reject) => {
-          gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => resolve(gltf), (err) => reject(err));
+          gltfLoader.parse(result.arrayBuffer, './assets/glb/', resolve, reject);
         });
       }
       let loadedCount = 0;
@@ -1233,7 +1245,7 @@ export function initWizardChess() {
 
       // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
       const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         loadGltfModel('option8_cathedral').then(
           (gltf) => {
             const cathedralRoot = gltf.scene;
@@ -1384,15 +1396,14 @@ export function initWizardChess() {
           },
           (err) => {
             console.warn('Cathedral GLB load warning:', err);
-            bumpProgress('Cathedral Loaded');
-            resolve();
+            reject(err);
           }
         );
       });
 
       // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
       for (const type of PIECE_TYPES) {
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
           loadGltfModel(`${type}_white`).then(
             (gltf) => {
               const toRemove = [];
@@ -1418,8 +1429,7 @@ export function initWizardChess() {
             },
             (err) => {
               console.warn(`Piece load warning (${type}):`, err);
-              bumpProgress(`Loaded ${type}`);
-              resolve();
+              reject(err);
             }
           );
         });
@@ -3060,10 +3070,10 @@ export function initWizardChess() {
         if (total === 0) {
           label.textContent = `Move ${moveHistory.length}`;
         } else if (scriptDeviated) {
-          label.textContent = `Move ${moveHistory.length} • Custom Takeover`;
+          label.textContent = `Move ${moveHistory.length}  Custom Takeover`;
         } else if (scriptCursor < total) {
           const nextSan = scriptMoves[scriptCursor].san;
-          label.textContent = `Step ${scriptCursor}/${total} • Next: ${nextSan}`;
+          label.textContent = `Step ${scriptCursor}/${total}  Next: ${nextSan}`;
         } else {
           label.textContent = `Step ${total}/${total} (Done)`;
         }
@@ -3399,10 +3409,10 @@ export function initWizardChess() {
       const winnerName = winnerColor === 'w' ? 'White' : 'Black';
       const defeatedName = defeatedColor === 'w' ? 'White' : 'Black';
 
-      if (crownEl) crownEl.textContent = winnerColor === 'w' ? '♔' : '♚';
+      if (crownEl) crownEl.textContent = winnerColor === 'w' ? '?' : '?';
       if (titleEl) titleEl.textContent = 'Checkmate';
       if (subEl) {
-        subEl.textContent = `${winnerName} Triumphs • The ${defeatedName} King Has Fallen`;
+        subEl.textContent = `${winnerName} Triumphs  The ${defeatedName} King Has Fallen`;
       }
       if (overlay) {
         overlay.classList.add('visible');
@@ -3675,12 +3685,12 @@ export function initWizardChess() {
         gameOver = true;
         if (inCheck) {
           const winner = currentTurn === 'w' ? 'Black' : 'White';
-          turnText.textContent = `Checkmate — ${winner} Wins`;
+          turnText.textContent = `Checkmate - ${winner} Wins`;
           if (!checkmateState.active) {
             triggerCheckmateSequence(currentTurn, currentTurn === 'w' ? 'b' : 'w');
           }
         } else {
-          turnText.textContent = 'Stalemate — Draw';
+          turnText.textContent = 'Stalemate - Draw';
         }
       } else {
         const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
@@ -3710,7 +3720,7 @@ export function initWizardChess() {
       }
 
       if (capturedByWhite > 0 || capturedByBlack > 0) {
-        capturedTray.textContent = `Captured — White: ${capturedByWhite} | Black: ${capturedByBlack}`;
+        capturedTray.textContent = `Captured - White: ${capturedByWhite} | Black: ${capturedByBlack}`;
       } else {
         capturedTray.textContent = '';
       }
@@ -3935,7 +3945,7 @@ export function initWizardChess() {
       if (mpMsg && roomCode) {
         mpMsg.textContent = bothReady
           ? `Both players connected to Room ${room.code}!`
-          : `Room ${room.code} ready — waiting for second player to join...`;
+          : `Room ${room.code} ready - waiting for second player to join...`;
       }
 
       if (room.resetCount > appliedResetCount) {
@@ -4585,11 +4595,11 @@ export function initWizardChess() {
           ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(212, 175, 55, 0.88)';
           ctx.font = '600 12px Georgia, serif';
-          ctx.fillText('✦   SANCTUM JUDGMENT   ✦', window.innerWidth / 2, by + 28);
+          ctx.fillText('?   SANCTUM JUDGMENT   ?', window.innerWidth / 2, by + 28);
 
           ctx.fillStyle = '#f5d76e';
           ctx.font = '26px serif';
-          const crownChar = checkmateState.winnerColor === 'b' ? '♚' : '♔';
+          const crownChar = checkmateState.winnerColor === 'b' ? '?' : '?';
           ctx.fillText(crownChar, window.innerWidth / 2, by + 56);
 
           ctx.fillStyle = '#f7e299';
@@ -4604,7 +4614,7 @@ export function initWizardChess() {
 
           const subTxt =
             document.getElementById('checkmate-subtitle')?.textContent ||
-            'WHITE TRIUMPHS • THE BLACK KING HAS FALLEN';
+            'WHITE TRIUMPHS  THE BLACK KING HAS FALLEN';
           ctx.fillStyle = '#f0ece1';
           ctx.font = 'bold 14px Georgia, serif';
           ctx.fillText(subTxt.toUpperCase(), window.innerWidth / 2, by + 142);
@@ -4650,7 +4660,7 @@ export function initWizardChess() {
 
             ctx.fillStyle = '#d4af37';
             ctx.font = 'bold 18px Inter, sans-serif';
-            ctx.fillText('MULTIPLAYER LOBBY • ROOM CODE', cx + 28, cy + 42);
+            ctx.fillText('MULTIPLAYER LOBBY  ROOM CODE', cx + 28, cy + 42);
 
             ctx.fillStyle = '#9aa0a6';
             ctx.font = '13px Inter, sans-serif';
@@ -4662,7 +4672,7 @@ export function initWizardChess() {
 
             ctx.fillStyle = '#4ea8de';
             ctx.font = '600 14px Inter, sans-serif';
-            ctx.fillText('Create Room  •  Join Room by Code  •  Live Move Sync', cx + 42, cy + 195);
+            ctx.fillText('Create Room    Join Room by Code    Live Move Sync', cx + 42, cy + 195);
 
             ctx.fillStyle = '#f0ece1';
             ctx.font = '13px Inter, sans-serif';
@@ -4950,5 +4960,17 @@ export function initWizardChess() {
       } else {
         animate();
       }
-    })();
+    })().catch((err) => {
+      console.error('Game asset loading failed:', err);
+      const loaderText = document.getElementById('loader-text');
+      if (loaderText) {
+        loaderText.textContent = err.message || 'Unable to load game assets.';
+        const retry = document.createElement('button');
+        retry.className = 'hud-btn';
+        retry.textContent = 'Retry Loading';
+        retry.onclick = () => window.location.reload();
+        loaderText.appendChild(document.createElement('br'));
+        loaderText.appendChild(retry);
+      }
+    });
 }
