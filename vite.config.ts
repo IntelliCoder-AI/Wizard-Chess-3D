@@ -15,7 +15,36 @@ export default defineConfig(async ({ mode, command }) => {
     const { pack } = createRequire(import.meta.url)('gltfpack');
     for (const name of ['option8_cathedral', 'pawn_white', 'rook_white', 'knight_white', 'bishop_white', 'queen_white', 'king_white']) {
       const original = Buffer.from(readFileSync(`public/assets/glb/${name}.glb.gz.b64`, 'utf8').trim(), 'base64');
-      const input = gunzipSync(original);
+      let input = gunzipSync(original);
+      // The exports contain unused accessors pointing at empty buffer views.
+      // Remove only unreferenced entries before passing the model to gltfpack.
+      const jsonLength = input.readUInt32LE(12);
+      const json = JSON.parse(input.subarray(20, 20 + jsonLength).toString('utf8'));
+      const references: [Record<string, number>, string][] = [];
+      for (const mesh of json.meshes || []) for (const primitive of mesh.primitives) {
+        for (const key of Object.keys(primitive.attributes)) references.push([primitive.attributes, key]);
+        if (primitive.indices !== undefined) references.push([primitive, 'indices']);
+        for (const target of primitive.targets || []) for (const key of Object.keys(target)) references.push([target, key]);
+      }
+      for (const skin of json.skins || []) if (skin.inverseBindMatrices !== undefined) references.push([skin, 'inverseBindMatrices']);
+      for (const animation of json.animations || []) for (const sampler of animation.samplers) {
+        references.push([sampler, 'input'], [sampler, 'output']);
+      }
+      const used = new Set(references.map(([object, key]) => object[key]));
+      const remap = new Map<number, number>();
+      json.accessors = json.accessors.filter((_accessor: unknown, index: number) => {
+        if (!used.has(index)) return false;
+        remap.set(index, remap.size);
+        return true;
+      });
+      for (const [object, key] of references) object[key] = remap.get(object[key])!;
+      const jsonBytes = Buffer.from(JSON.stringify(json));
+      const jsonChunk = Buffer.alloc(Math.ceil(jsonBytes.length / 4) * 4, 0x20);
+      jsonBytes.copy(jsonChunk);
+      const header = Buffer.from(input.subarray(0, 20));
+      header.writeUInt32LE(jsonChunk.length, 12);
+      input = Buffer.concat([header, jsonChunk, input.subarray(20 + jsonLength)]);
+      input.writeUInt32LE(input.length, 8);
       let optimized: Buffer | undefined;
       await pack(['-i', 'input.glb', '-o', 'output.glb', '-cc', '-kn', '-km', '-ke',
         '-vpf', '-vp', '16', '-vt', '16', '-vn', '12', '-at', '24', '-ar', '16', '-as', '24', '-af', '24', '-ac'], {
