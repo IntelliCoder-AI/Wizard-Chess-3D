@@ -1,0 +1,17 @@
+{
+  "headers": [
+    {
+      "source": "/assets/glb/:path*",
+      "headers": [
+        {
+          "key": "Content-Encoding",
+          "value": "identity"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate, no-transform"
+        }
+      ]
+    }
+  ]
+}
