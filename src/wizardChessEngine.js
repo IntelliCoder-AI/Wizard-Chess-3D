@@ -1159,7 +1159,7 @@ export function initWizardChess() {
     async function loadAllAssets() {
       const loaderBar = document.getElementById('loader-bar');
       const loaderText = document.getElementById('loader-text');
-      const totalItems = PIECE_TYPES.length + 1;
+      const totalItems = PIECE_TYPES.length;
 
       // Share one queue across every model, so large transfers cannot flood the connection.
       let activeDownloads = 0;
@@ -1228,13 +1228,19 @@ export function initWizardChess() {
       }
 
       // Queue downloads together; retain failures until their model is consumed.
-      const downloads = new Map(['option8_cathedral', ...PIECE_TYPES.map((type) => `${type}_white`)]
+      const downloads = new Map(PIECE_TYPES.map((type) => `${type}_white`)
         .map((name) => [name, downloadModel(name).then(
           (arrayBuffer) => ({ arrayBuffer }),
           (error) => ({ error })
         )]));
 
       async function loadGltfModel(baseName) {
+        if (!downloads.has(baseName)) {
+          downloads.set(baseName, downloadModel(baseName).then(
+            (arrayBuffer) => ({ arrayBuffer }),
+            (error) => ({ error })
+          ));
+        }
         const result = await downloads.get(baseName);
         if (result.error) throw result.error;
         return new Promise((resolve, reject) => {
@@ -1285,7 +1291,9 @@ export function initWizardChess() {
 
       // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
       const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      await new Promise((resolve, reject) => {
+      function loadCathedral() {
+        downloads.delete('option8_cathedral');
+        return new Promise((resolve, reject) => {
         loadGltfModel('option8_cathedral').then(
           (gltf) => {
             const cathedralRoot = gltf.scene;
@@ -1431,7 +1439,8 @@ export function initWizardChess() {
             setFloorStoneLook(0);
             scene.add(cathedralRoot);
 
-            bumpProgress('Cathedral Architecture Loaded...');
+            renderer.shadowMap.needsUpdate = true;
+            if (navigator.webdriver) renderer.render(scene, camera);
             resolve();
           },
           (err) => {
@@ -1439,7 +1448,8 @@ export function initWizardChess() {
             reject(err);
           }
         );
-      });
+        });
+      }
 
       // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
       for (const type of PIECE_TYPES) {
@@ -1476,6 +1486,7 @@ export function initWizardChess() {
       }
 
       document.getElementById('loading-overlay')?.classList.add('hidden');
+      return loadCathedral;
     }
 
     // =========================================================================
@@ -4988,7 +4999,7 @@ export function initWizardChess() {
 
     // Startup sequence (Standalone Single-Player AI Studio Applet)
     (async () => {
-      await loadAllAssets();
+      const loadCathedral = await loadAllAssets();
       const params = new URLSearchParams(window.location.search);
       const urlSide = params.get('side');
       if (urlSide === 'b' || urlSide === 'black') {
@@ -5000,6 +5011,26 @@ export function initWizardChess() {
       } else {
         animate();
       }
+      // Make the board playable before downloading the larger decorative environment.
+      const environmentStatus = document.createElement('button');
+      environmentStatus.className = 'hud-btn';
+      Object.assign(environmentStatus.style, { position: 'absolute', bottom: '16px', left: '16px', zIndex: '20' });
+      environmentStatus.setAttribute('aria-live', 'polite');
+      document.body.appendChild(environmentStatus);
+      const loadEnvironment = async () => {
+        environmentStatus.textContent = 'Loading cathedral...';
+        environmentStatus.disabled = true;
+        try {
+          await loadCathedral();
+          environmentStatus.remove();
+        } catch (err) {
+          console.warn('Cathedral loading failed:', err);
+          environmentStatus.textContent = 'Retry Cathedral';
+          environmentStatus.disabled = false;
+        }
+      };
+      environmentStatus.onclick = loadEnvironment;
+      void loadEnvironment();
     })().catch((err) => {
       console.error('Game asset loading failed:', err);
       const loaderText = document.getElementById('loader-text');
