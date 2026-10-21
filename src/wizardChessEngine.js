@@ -1,6 +1,7 @@
 import * as THREE_NS from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /** @type {any} */
@@ -860,7 +861,7 @@ export function initWizardChess() {
     // =========================================================================
     // Asset Loading (Cathedral GLB + 12 Rigged Piece GLBs)
     // =========================================================================
-    const gltfLoader = new GLTFLoader();
+    const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const pieceTemplates = {};
     const activeMixers = [];
     const shatterDebris = [];
