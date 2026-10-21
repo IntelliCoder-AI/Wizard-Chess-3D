@@ -29,6 +29,11 @@ export default defineConfig(({ mode, command }) => {
       apply: 'build',
       generateBundle() {
         for (const part of cathedralParts) this.emitFile({ type: 'asset', ...part });
+        const sample = cathedralParts[0].source;
+        this.emitFile({ type: 'asset', fileName: 'asset-transfer-probe/sample.bin', source: sample });
+        this.emitFile({ type: 'asset', fileName: 'asset-transfer-probe/identity.bin', source: sample });
+        this.emitFile({ type: 'asset', fileName: 'asset-transfer-probe/sample.json', source: JSON.stringify(sample.toString('base64')) });
+        this.emitFile({ type: 'asset', fileName: 'asset-transfer-probe/sample.js', source: 'export default ' + JSON.stringify(sample.toString('base64')) + ';' });
       },
     }],
     define: {

@@ -1,0 +1,21 @@
+<!doctype html><meta name="robots" content="noindex"><title>Asset transfer diagnostic</title><pre id="results">Starting</pre><script>
+const cases=[
+ ['binary','/asset-transfer-probe/sample.bin'],
+ ['identity','/asset-transfer-probe/identity.bin'],
+ ['json','/asset-transfer-probe/sample.json'],
+ ['javascript','/asset-transfer-probe/sample.js'],
+ ['original','/assets/glb/cathedral-8734fc51f98f-0.bin']
+];
+const results=[];const show=()=>document.querySelector('#results').textContent=JSON.stringify(results,null,2);
+Promise.all(cases.map(async([name,path])=>{
+ const result={name,bytes:0};results.push(result);show();
+ const begin=performance.now(),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+ try{
+ const response=await fetch(path,{signal:controller.signal});
+ result.headersMs=Math.round(performance.now()-begin);result.status=response.status;result.headers=Object.fromEntries(response.headers);show();
+ const reader=response.body.getReader();while(true){const {done,value}=await reader.read();if(done)break;result.bytes+=value.length;result.lastByteMs=Math.round(performance.now()-begin);show();}
+ result.complete=true;
+ }catch(error){result.error=String(error);}
+ finally{clearTimeout(timer);result.elapsedMs=Math.round(performance.now()-begin);show();}
+})).then(()=>{document.body.dataset.complete='true';});
+</script>

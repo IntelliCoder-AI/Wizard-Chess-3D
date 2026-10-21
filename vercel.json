@@ -1,0 +1,17 @@
+{
+  "headers": [
+    {
+      "source": "/asset-transfer-probe/identity.bin",
+      "headers": [
+        {
+          "key": "Content-Encoding",
+          "value": "identity"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60, no-transform"
+        }
+      ]
+    }
+  ]
+}
