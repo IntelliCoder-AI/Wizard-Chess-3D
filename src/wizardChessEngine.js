@@ -1166,7 +1166,7 @@ export function initWizardChess() {
       const waitingDownloads = [];
 
       async function fetchAsset(url, binary = false) {
-        if (activeDownloads >= 2) await new Promise((resolve) => waitingDownloads.push(resolve));
+        if (activeDownloads >= 1) await new Promise((resolve) => waitingDownloads.push(resolve));
         else activeDownloads++;
         try {
           for (let attempt = 0; attempt < 3; attempt++) {
